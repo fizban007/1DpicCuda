@@ -50,6 +50,7 @@ all:
 	@echo "pedantic_clang - run Clang with maximal warning flags"
 	@echo "pedantic_gcc - run GCC with maximal warning flags"
 	@echo "pretty - beautify code with Artistic Style"
+	@echo "run_benchmarks - build and run benchmarks"
 
 ##########################################################################
 # unit tests
@@ -70,7 +71,7 @@ check-fast:
 clean:
 	rm -fr json_unit json_benchmarks fuzz fuzz-testing *.dSYM test/*.dSYM
 	rm -fr benchmarks/files/numbers/*.json
-	rm -fr build_coverage
+	rm -fr build_coverage build_benchmarks
 	$(MAKE) clean -Cdoc
 	$(MAKE) clean -Ctest
 
@@ -81,7 +82,7 @@ clean:
 
 coverage:
 	mkdir build_coverage
-	cd build_coverage ; CXX=g++-5 cmake .. -GNinja -DJSON_Coverage=ON
+	cd build_coverage ; CXX=g++-5 cmake .. -GNinja -DJSON_Coverage=ON -DJSON_MultipleHeaders=ON
 	cd build_coverage ; ninja
 	cd build_coverage ; ctest -j10
 	cd build_coverage ; ninja lcov_html
@@ -189,6 +190,16 @@ pedantic_gcc:
 		-Wvariadic-macros"
 
 ##########################################################################
+# benchmarks
+##########################################################################
+
+run_benchmarks:
+	mkdir build_benchmarks
+	cd build_benchmarks ; cmake ../benchmarks
+	cd build_benchmarks ; make
+	cd build_benchmarks ; ./json_benchmarks
+
+##########################################################################
 # fuzzing
 ##########################################################################
 
@@ -247,6 +258,12 @@ fuzzing-stop:
 cppcheck:
 	cppcheck --enable=warning --inconclusive --force --std=c++11 $(AMALGAMATED_FILE) --error-exitcode=1
 
+# compile and check with Clang Static Analyzer
+clang_analyze:
+	rm -fr clang_analyze_build
+	mkdir clang_analyze_build
+	cd clang_analyze_build ; CCC_CXX=/Users/niels/Documents/projects/llvm-clang/local/bin/clang++ /Users/niels/Documents/projects/llvm-clang/local/bin/scan-build cmake ..
+	/Users/niels/Documents/projects/llvm-clang/local/bin/scan-build -enable-checker alpha.core.DynamicTypeChecker,alpha.core.PointerArithm,alpha.core.PointerSub,alpha.cplusplus.DeleteWithNonVirtualDtor,alpha.cplusplus.IteratorRange,alpha.cplusplus.MisusedMovedObject,alpha.security.ArrayBoundV2,alpha.core.Conversion --use-c++=/Users/niels/Documents/projects/llvm-clang/local/bin/clang++ --view -analyze-headers -o clang_analyze_build/report.html make -j10 -C clang_analyze_build
 
 ##########################################################################
 # maintainer targets
@@ -295,3 +312,19 @@ ChangeLog.md:
 	github_changelog_generator -o ChangeLog.md --simple-list --release-url https://github.com/nlohmann/json/releases/tag/%s --future-release $(NEXT_VERSION)
 	gsed -i 's|https://github.com/nlohmann/json/releases/tag/HEAD|https://github.com/nlohmann/json/tree/HEAD|' ChangeLog.md
 	gsed -i '2i All notable changes to this project will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org/).' ChangeLog.md
+
+
+##########################################################################
+# release
+##########################################################################
+
+release:
+	mkdir release_files
+	zip -9 -r include.zip include/*
+	gpg --armor --detach-sig include.zip
+	mv include.zip include.zip.asc release_files
+	gpg --armor --detach-sig single_include/nlohmann/json.hpp
+	cp single_include/nlohmann/json.hpp release_files
+	mv single_include/nlohmann/json.hpp.asc release_files
+	cd release_files ; shasum -a 256 json.hpp > hashes.txt
+	cd release_files ; shasum -a 256 include.zip >> hashes.txt
